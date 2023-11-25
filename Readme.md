@@ -1,4 +1,4 @@
-# How to setup Linux infrastructure for hosting Ruby on Rails websites via Docker Swarm, GlusterFS, Traefik, Portainer and PostgreSQL in High Availability with Zabbix monitoring via Hetzer provider
+# How to setup Linux infrastructure for hosting Ruby on Rails websites via Docker Swarm, GlusterFS, Traefik, Portainer and PostgreSQL in High Availability with Zabbix monitoring via Hetzner provider
 Read time: 40 minutes
 
 ## Introduction and VPS provider selection
