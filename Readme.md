@@ -1,19 +1,20 @@
-# How to setup Linux infrastructure for hosting Ruby on Rails websites via Docker Swarm, GlusterFS, Traefik, Portainer and PostgreSQL in High Availability with Zabbix monitoring
+# How to setup Linux infrastructure for hosting Ruby on Rails websites via Docker Swarm, GlusterFS, Traefik, Portainer and PostgreSQL in High Availability with Zabbix monitoring via Hetzer provider
 Read time: 40 minutes
 
 ## Introduction and VPS provider selection
-This is third edition of my tutorial about setuping system infrastructure via Docker. This time we will install infrastructure on amd64 arch VPS server, in VPS provider from Germany, called  [Contabo](https://contabo.com/en/). On their website they says, that they are "the best priced VPS on the Planet". And yes, their prices are very good. My infrastructure is not business-critical, so I dont expect much from such a cheap provider. If you want to follow this tutorial but use another VPS provider like [DigitalOcean](https://www.digitalocean.com/), feel free to do it.
+This is third edition of my tutorial about setuping system infrastructure via Docker. This time we will install infrastructure on amd64 arch VPS server, in VPS provider called  [Hetzner](https://www.hetzner.com/cloud). 
 
-I have selected product `VPS S SSD` with 4 vCPU cores, 8GB ram, 50 GB NVMe / 200 GB SSD storage and 1 snapshot for 5.40 EUR/month. Because I have selected monthly payment, I needed to pay initial setup fee for another 5.40 EUR. Because I want to setup HA, I have ordered another one VPS, with the same specification. If you want to communicate via private network between the servers, I recommend to pay extra 2.75 EUR per server. So basically, the monthly fee (without setup fee) for one server is in total 8.15 EUR. Which is great price!
+I have selected product `CPX21` with 3vCPU cores, 4GB ram, 80GB disk space and 20TB traffic for 9.06 EUR/month.
+Because I need more disk space, I have ordered also 70GB volume. Volumes are external storage for the VPS, mounted to the system. 
 
-`NOTE on 19.11.2023:` At this date, Contabo has long outage in the one of Germany datacentre, where I have this two vps. It completely broke my private networking for half a day, so I do not recommend this provider for hosting business critical websites. 
+Because I want to setup HA, I have ordered another one VPS, with the same specification. You do not need to pay extra fees, if you want to communicate over private network. Let's start!
 
 ## 1 Initial server preparation
-The process of buying VPS from Contabo is fully automate. You can pay via card and save the card for next payments. The new VPS was prepared in 5 minutes. I strongly recommend to activate private networking at the beginning of server setuping. The process of activating private network will cause the data loss on the VPS!
+The process of buying VPS from Hetzner is fully automate. You can pay via card and save the card for next payments. 
 
-At the beginning I have setup DNS A record for both the VPS to `vps1.matho.sk`  and `vps2.matho.sk` . Feel free to change it according your needs, but we will use this domains in the following tutorial. If you want to read more about private networking in Contabo, check the following [article](https://contabo.com/blog/introducing-private-networking-isolated-server-environment/).
+At the beginning I have setup DNS A record for both the VPS to `vps1.matho.sk`  and `vps2.matho.sk` . Feel free to change it according your needs, but we will use this domains in the following tutorial.
 
-In this tutorial we will use Ubuntu 22.04.3 LTS. It is the latest available LTS version at the time of preparing this tutorial (Oct 2023).
+In this tutorial we will use Ubuntu 22.04.3 LTS. It is the latest available LTS version at the time of preparing this tutorial (Nov 2023).
 
 ## 2 Initial configuration
 I have bought 2 VPS, but it is recommended to use at least 3 VPS for Docker cluster. In this tutorial we will use only 2. But it should not be too hard to migrate to 3, if you need.
@@ -35,7 +36,7 @@ To see the changes, simply logout and login via ssh.
 ### 2.2 SSH settings
 It is recommended to use ssh keys instead of password. With this way, you will not need to enter password each time you will login to server.
 
-On both nodes create folder for ssh keys, if do not exists:  
+But maybe, you have already setup your ssh key with Hetzner cloud portal. If not, on both nodes create folder for ssh keys, if do not exists:  
 `$ mkdir ~/.ssh`
 
 Verify, if this file is created, if not, create  
@@ -67,7 +68,7 @@ Open new terminal and try to login:
 You should be logged in correctly, now. Change the setting for the second VPS, also.
 
 ### 2.3 Firewall
-I will use `ufw` firewall.
+I will use `ufw` firewall, on both nodes.
 
 ``` 
 $ sudo apt-get update
@@ -93,9 +94,9 @@ Then run command, which will scan all open ports on server
 You should see the similar response:
 ```
 Starting Nmap 7.80 ( https://nmap.org ) at 2023-10-22 12:44 CEST
-Nmap scan report for vps.matho.sk (109.123.251.98)
+Nmap scan report for **********
 Host is up (0.024s latency).
-rDNS record for 109.123.251.98: vmi1489968.contaboserver.net
+rDNS record for *****
 Not shown: 996 filtered ports
 PORT     STATE  SERVICE
 53/tcp   open   domain
@@ -105,10 +106,10 @@ PORT     STATE  SERVICE
 ```
 
 ### 2.4 Activate swap
-The great article about activating swap you can find on this [link](https://www.digitalocean.com/community/tutorials/how-to-add-swap-space-on-ubuntu-20-04) It is fully working also for Ubuntu 22.04 LTS. The only change is, that we want to activate 8GB of swap space, instead of 1GB in tutorial.
+The great article about activating swap you can find on this [link](https://www.digitalocean.com/community/tutorials/how-to-add-swap-space-on-ubuntu-22-04) The only change is, that we want to activate 4GB of swap space, instead of 1GB in tutorial. Activate it on both nodes.
 
 ## 3 Docker and Docker Compose
-No we will install Docker. Prerequisites you can find at [https://docs.docker.com/engine/install/ubuntu/#prerequisites](https://docs.docker.com/engine/install/ubuntu/#prerequisites)
+No we will install Docker. On both nodes. Prerequisites was extracted from [https://docs.docker.com/engine/install/ubuntu/#prerequisites](https://docs.docker.com/engine/install/ubuntu/#prerequisites)
 
 Reload system:  
 `$ sudo apt-get update`
@@ -152,51 +153,51 @@ Echo the version to detect, if it is installed correctly:
 ## 4 Docker swarm
 The Docker swarm tutorial you can find on [https://docs.docker.com/engine/swarm/swarm-tutorial/](https://docs.docker.com/engine/swarm/swarm-tutorial/)
 
-The first VPS (`ubuntu1`) will be manager and the second (`ubuntu2`) will be worker. The manager can also host websites like the worker, but the manager node will be responsible for request distribution across the cluster. The ubuntu1 manager node has private IP 10.0.0.1 and the second node has private IP 10.0.0.2.
+The first VPS (`ubuntu1`) will be manager and the second (`ubuntu2`) will be worker. The manager can also host websites like the worker, but the manager node will be responsible for request distribution across the cluster. The ubuntu1 manager node has private IP 10.0.0.2 and the second node has private IP 10.0.0.3.
 
 The following ports must be available for communication between Docker nodes in private network:
 
 TCP port `2377` for cluster management communications
 on ubuntu1:
 ```
-$ sudo ufw allow from 10.0.0.2 to any port 2377
+$ sudo ufw allow from 10.0.0.3 to any port 2377
 $ sudo ufw deny 2377
 ```
 
 on ubuntu2:
 ``` 
-$ sudo ufw allow from 10.0.0.1 to any port 2377
+$ sudo ufw allow from 10.0.0.2 to any port 2377
 $ sudo ufw deny 2377
 ```
 
 TCP and UDP port `7946` for communication among nodes
 on ubuntu1:
 ``` 
-$ sudo ufw allow from 10.0.0.2 to any port 7946
+$ sudo ufw allow from 10.0.0.3 to any port 7946
 $ sudo ufw deny 7946
 ```
 
 on ubuntu2:
 ``` 
-$ sudo ufw allow from 10.0.0.1 to any port 7946
+$ sudo ufw allow from 10.0.0.2 to any port 7946
 $ sudo ufw deny 7946
 ```
 
 UDP port `4789` for overlay network traffic
 on ubuntu1:
 ``` 
-$ sudo ufw allow from 10.0.0.2 to any port 4789
+$ sudo ufw allow from 10.0.0.3 to any port 4789
 $ sudo ufw deny 4789
 ```
 
 on ubuntu2:
 ``` 
-$ sudo ufw allow from 10.0.0.1 to any port 4789
+$ sudo ufw allow from 10.0.0.2 to any port 4789
 $ sudo ufw deny 4789
 ```
 
 Lets create manager node (run on ubuntu1):  
-`$ sudo docker swarm init --advertise-addr 10.0.0.1`
+`$ sudo docker swarm init --advertise-addr 10.0.0.2`
 
 You will see similar response to this one:
 ``` 
@@ -204,14 +205,14 @@ Swarm initialized: current node (ft3xaaa5wzsn62tn48y) is now a manager.
 
 To add a worker to this swarm, run the following command:
 
-    docker swarm join --token SWMTKN-1-2xg6... 10.0.0.1:2377
+    docker swarm join --token SWMTKN-1-2xg6... 10.0.0.2:2377
 
 To add a manager to this swarm, run 'docker swarm join-token manager' and follow the instructions.
 ```
 Note: the token will be different.
 
 If you want to add worker node to swarm, execute the recommended command on ubuntu2 from the output - something like:  
-`$ sudo docker swarm join --token WMTKN-1-2xg6... 10.0.0.1:2377`
+`$ sudo docker swarm join --token WMTKN-1-2xg6... 10.0.0.2:2377`
 
 Check, if worker was added. On manager node run:    
 `$ sudo docker node ls`
@@ -236,8 +237,8 @@ On all nodes, run:
 
 and insert this config (use your private IPs instead)
 ```
-10.0.0.1 gluster1.example.com gluster1
-10.0.0.2 gluster2.example.com gluster2
+10.0.0.2 gluster1.example.com gluster1
+10.0.0.3 gluster2.example.com gluster2
 ```
 You can change the domains, but to be as similar to the DigitalOcean article as is possible, I decided to keep the same domain names here.
 
@@ -261,14 +262,14 @@ $ sudo systemctl status glusterd.service
 
 Then we want to set firewall. On `gluster1` node, execute
 ```
-$ sudo ufw allow from 10.0.0.2 to any port 24007
-$ sudo ufw allow from 10.0.0.2 to any port 24008
+$ sudo ufw allow from 10.0.0.3 to any port 24007
+$ sudo ufw allow from 10.0.0.3 to any port 24008
 ```
 
 On `gluster2` node, execute
 ``` 
-$ sudo ufw allow from 10.0.0.1 to any port 24007
-$ sudo ufw allow from 10.0.0.1 to any port 24008
+$ sudo ufw allow from 10.0.0.2 to any port 24007
+$ sudo ufw allow from 10.0.0.2 to any port 24008
 ```
 
 On both nodes, deny connection from public:
@@ -277,14 +278,19 @@ $ sudo ufw deny 24007
 $ sudo ufw deny 24008
 ```
 
+On `ubuntu1` node:
+`$ sudo gluster peer probe gluster2`
+
 On both nodes:
 ```
 $ sudo gluster peer status
 ```
 
+I have ordered 70GB "volume". It is Hetzner product to expand server disk capacity. You can see the mounted volume via `df -h` command. For now, for `ubuntu1` node, the mount point is `/mnt/HC_Volume_100106160` and for `ubuntu2` node the mount point is `/mnt/HC_Volume_100106289` Replace this values with your values in the following commands.
+
 On `gluster1`:
 ``` 
-$ sudo gluster volume create volume1 replica 2 gluster1.example.com:/gluster-storage gluster2.example.com:/gluster-storage force
+$ sudo gluster volume create volume1 replica 2 gluster1.example.com:/mnt/HC_Volume_100106160/gluster-storage gluster2.example.com:/mnt/HC_Volume_100106289/gluster-storage force
 $ sudo gluster volume start volume1
 $ sudo gluster volume status
 ```
@@ -309,14 +315,14 @@ Then allow the hardcoded port for inter-node communication:
 
 On `gluster1`:
 ```
-$ sudo ufw allow from 10.0.0.2 to any port 49152
-$ sudo ufw allow from 10.0.0.2 to any port 49153
+$ sudo ufw allow from 10.0.0.3 to any port 49152
+$ sudo ufw allow from 10.0.0.3 to any port 49153
 ```
 
 On `gluster2`:
 ```
-$ sudo ufw allow from 10.0.0.1 to any port 49152
-$ sudo ufw allow from 10.0.0.1 to any port 49153
+$ sudo ufw allow from 10.0.0.2 to any port 49152
+$ sudo ufw allow from 10.0.0.2 to any port 49153
 ```
 
 On both nodes:
@@ -343,11 +349,13 @@ $ cd /storage-pool
 $ sudo touch file_{0..9}.test
 ```
 
+You should see the files on the `gluster2` node, if you run the `ls -la /storage-pool` from `gluster2`
+
 On `gluster1`:  
-`$ sudo gluster volume set volume1 auth.allow 10.0.0.2`
+`$ sudo gluster volume set volume1 auth.allow 10.0.0.3`
 
 On `gluster2`:  
-`$ sudo gluster volume set volume1 auth.allow 10.0.0.1`
+`$ sudo gluster volume set volume1 auth.allow 10.0.0.2`
 
 On both nodes:
 ``` 
@@ -367,44 +375,11 @@ If you need explanation of some steps, check the [great article](https://www.dig
 
 How to do auto mounting is mentioned in [this article](https://hexadix.com/setup-network-shared-folder-using-glusterfs-ubuntu-servers-backup-server-array-auto-mount/)
 
-In theory adding the following line to the client’s fstab file should make the client mount the GlusterFS share at boot:
-On the first node, write to fstab  
-`$ sudo vim /etc/fstab`
-this content:
-`gluster1.example.com:/volume1 /storage-pool glusterfs defaults,_netdev 0 0`
-
-On second node, write to fstab
-`$ sudo vim /etc/fstab`
-this content:
-`gluster2.example.com:/volume1 /storage-pool glusterfs defaults,_netdev 0 0`
-
-Contabo has specific `/etc/hosts` - after VPS restart, records are not persistent. See the following comment:
-```
-# Your system has configured 'manage_etc_hosts' as True.
-2 # As a result, if you wish for changes to this file to persist
-3 # then you will need to either
-4 # a.) make changes to the master file in /etc/cloud/templates/hosts.debian.tmpl
-5 # b.) change or remove the value of 'manage_etc_hosts' in
-6 #     /etc/cloud/cloud.cfg or cloud-config from user-data
-```
-
-On all nodes, run:  
-`$ sudo vim /etc/cloud/templates/hosts.debian.tmpl`
-
-and insert this config (use your private IPs instead)
-```
-10.0.0.1 gluster1.example.com gluster1
-10.0.0.2 gluster2.example.com gluster2
-```
-
-Normally the fstab record should work since the _netdev param should force the filesystem to wait for a network connection. If the fstab didn’t work for you because the GlusterFS client wasn’t running when the fstab file was processed, you can use following approach.
-
-Delete the added lines from the /etc/fstab.
-
 Add the mount command to `/etc/rc.local` file. We will not add it to /etc/fstab as rc.local is always executed after the network is up which is required for a network file system.
 
 On `ubuntu1` node:  
 `$ sudo vim /etc/rc.local`
+
 add content:
 ``` 
 #!/bin/sh -e
@@ -448,10 +423,33 @@ $ sudo tail -n 200 /var/log/glusterfs/glusterd.log
 ``` 
 
 ## 6 Portainer
-If your infrastructure becomes big, it is usefull to have possibility to maintain the Docker stack via GUI, instead of linux commands. Portainer is GUI on top of Docker containers - Docker Compose and/or Docker Swarm. It enables you to manage your Docker Swarm via clicking in GUI, instead of linux commands. You can create stacks, up/down scaling, monitor your Docker containers or view the cluster overview - which container is running under which VPS. This is a must tool, you really want to have installed!
+### 6.1 Docker Swarm issues in Hetzner
 
-To be able run Portainer, allow this ports in firewall:
-On ubuntu1:  
+If you are running vps in Hetzner, like we are in this tutorial, you will have problems with Portainer agents communication. The agent will have issues communicate on private network. Hetzner's private networking uses a MTU of 1450, but Docker Swarm's default network MTU is 1500. If the underlying network has a lower MTU than this the Swarm, nodes may fail to communicate with each other.
+
+`NOTE:` If you are running in another VPS provider, the MTU can be different. Change this `1450` values to another values, if needed.
+
+Change the default overlay network MTU. In this tutorial we are using 1450 for all networks - for all Docker stacks 1450. If you have any other networks created before now, you need to remove also that networks:  
+```
+$ docker network rm ingress
+$ docker network create -d overlay --ingress --opt com.docker.network.driver.mtu=1450 ingress
+$ docker network create -d overlay --opt com.docker.network.driver.mtu=1450 traefik_db-nw
+```
+
+Then check if networks has the 1450 MTU set:
+``` 
+$ sudo docker network ls
+$ sudo docker network inspect NETWORK_HASH_FROM_LS_COMMAND 
+```
+
+Then edit `/etc/docker/daemon.json` with the contents `{ "mtu": 1450 }` (or add to the existing contents of the file).
+Then restart docker: `sudo service docker restart`
+
+### 6.2 Portainer installation
+If your infrastructure becomes big, it is usefull to have possibility to maintain the Docker stack via GUI, instead of linux commands. Portainer is GUI on top of Docker containers - Docker Compose and/or Docker Swarm. It enables you to manage your Docker Swarm via clicking in GUI, instead of Linux commands. You can create stacks, up/down scaling, monitor your Docker containers or view the cluster overview - which container is running under which VPS. This is a must tool, you really want to have installed!
+
+To be able run Portainer, allow this ports in ufw firewall:
+On `ubuntu1`:  
 `$ sudo ufw allow 9443`
 
 The 8000 port is optional:  
@@ -459,26 +457,82 @@ The 8000 port is optional:
 
 On ubuntu1:
 ``` 
-sudo ufw allow from 10.0.0.2 to any port 9001
+sudo ufw allow from 10.0.0.3 to any port 9001
 sudo ufw deny 9001
 ```
 
 On ubuntu2:
 ``` 
-sudo ufw allow from 10.0.0.1 to any port 9001
+sudo ufw allow from 10.0.0.2 to any port 9001
 sudo ufw deny 9001
 ```
 
-On ubuntu1:  
-`$ sudo mkdir /storage-pool/portainer_data`
+On ubuntu1:
+`$ sudo mkdir ~/docker-stack`
 
-The installation steps are decribed [here](https://docs.portainer.io/start/install-ce/server/swarm/linux)
+`Note:` I recommend to create git repository for all this Docker configuration stacks. You can create repositories at [https://gitlab.com](https://gitlab.com) for free. Then create ssh keys on both vps nodes and set the `.pub` key in the Gitlab GUI. You will be able to push to Gitlab without typing password each time.
+
+Create new file with docker stack:  
+`$ sudo vim portainer-agent-stack.yml`
+
+```yaml
+version: '3.2'
+
+services:
+  agent:
+    image: portainer/agent:2.19.1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
+    networks:
+      - agent_network
+    deploy:
+      mode: global
+      placement:
+        constraints: [node.platform.os == linux]
+
+  portainer:
+    image: portainer/portainer-ce:2.19.1
+    command: -H tcp://tasks.agent:9001 --tlsskipverify
+    ports:
+      - "9443:9443"
+      #- "9000:9000"
+      #- "8000:8000"
+    volumes:
+      - portainer_data:/data
+    networks:
+      - traefik_db-nw
+      - agent_network
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+
+networks:
+  traefik_db-nw:
+    external: true
+  agent_network:
+    driver: overlay
+    driver_opts:
+      com.docker.network.driver.mtu: 1450
+    attachable: true
+
+volumes:
+  portainer_data:
 ```
-$ curl -L https://downloads.portainer.io/ce2-19/portainer-agent-stack.yml -o portainer-agent-stack.yml
+
+Deploy the stack via:  
+```
 $ sudo docker stack deploy -c portainer-agent-stack.yml portainer 
 ```
 
+I recommend to set line nums in vim editor: `$ vim ~/.vimrc` Append the following line: `set number`
+
 Now that the installation is complete, you can log into your Portainer Server instance by opening a web browser and going to `https://vps1.matho.sk:9443`
+
+Then you can create Portainer environment configuration in Portainer. Select Swarm config and in the input for IP set `tasks.agent:9001`.
+
 
 But how to mount the Portainer to some subdomain and cover by ssl cert? To achieve it, we will install Traefik.
 
@@ -489,11 +543,6 @@ But how to mount the Portainer to some subdomain and cover by ssl cert? To achie
 ## 7 Traefik installation
 Traefik is reverse-proxy sitting at the front of your Docker Swarm. It can forward requests to proper Docker containers and also can manage ssl certificates. It means, that you no more need to manually reissue Lets Encrypt certificates or setup some ssl renew process. It can handle cert renew process automatically. Traefik overview page is located at [https://doc.traefik.io/traefik/v2.2/providers/overview/](https://doc.traefik.io/traefik/v2.2/providers/overview/)
 
-``` 
-sudo ufw delete allow 8080
-sudo ufw allow 8081
-```
-
 My Traefik instance will be sitting on `traefik.vps1.matho.sk`. If you did not setup "wildcard" DNS A record for any `vps1` subdomain, set it manually now.
 
 Create Docker stack file for Traefik config:  
@@ -502,11 +551,6 @@ Create Docker stack file for Traefik config:
 with following content: (replace your email and password in the config)
 ```yaml
 version: '3.6'
-
-networks:
-  db-nw:
-    driver: overlay
-    attachable: true
 
 services:
   reverse-proxy:
@@ -541,7 +585,7 @@ services:
       - /root/traefik/tools/certs:/tools/certs
       - /root/traefik/tools/traefik/config.yml:/etc/traefik/dynamic_conf/conf.yml:ro
     networks:
-      - db-nw
+      - traefik_db-nw
 
     deploy:
       labels:
@@ -559,6 +603,10 @@ services:
       replicas: 1
       placement:
         constraints: [node.role == manager]
+
+networks:
+  traefik_db-nw:
+    external: true
 ```
 
 By default, your Traefik admin is publicly available - without some type of basic auth. You can generate admin:password for example on the page [https://hostingcanada.org/htpasswd-generator/](https://hostingcanada.org/htpasswd-generator/) . Insert username and password, select apache specific format and copy the credentials to Traefik label called `traefik.http.middlewares.auth.basicauth.users=`.
@@ -583,7 +631,7 @@ $ sudo ufw allow 80
 On both nodes  
 `$ sudo ufw allow 2375`
 
-Now we have running Traefik on `traefik.vps1.matho.sk` subdomain. It is covered with ssl cert from Lets Encrypt and http basic auth via admin:password, you have generated.
+Now we have running Traefik on `https://traefik.vps1.matho.sk` subdomain. It is covered with ssl cert from Lets Encrypt and http basic auth via admin:password, you have generated.
 
 We will move Portainer to subdomain in next chapter.
 
@@ -637,13 +685,15 @@ networks:
     external: true
   agent_network:
     driver: overlay
+    driver_opts:
+      com.docker.network.driver.mtu: 1450    
     attachable: true
 
 volumes:
   portainer_data:
 ```
 
-Ensure, you have wildcard domain for `*.vps1.matho.sk` or ensure you have setup DNS for `portainer` subdomain. In the Docker stack, change the Host rule for your domain
+Ensure, you have wildcard DNS A record for `*.vps1.matho.sk` or ensure you have setup DNS for `portainer` subdomain. In the Docker stack, change the Host rule for your domain
 
 Deploy the stack:  
 `$ sudo docker stack deploy -c portainer-agent-stack.yml portainer`
@@ -651,6 +701,10 @@ Deploy the stack:
 Give it few seconds to restart the containers and point `https://portainer.vps1.matho.sk` in your browser. If not reachable in few minutes, restart Traefik. Then you should see the Portainer on the given subdomain with the ssl certificate.
 
 At the end, remove the exposed https port. We no longer need it, as Traefik is doing the redirection of the requests. Remove the ports section in Portainer stack.
+
+If you have issues with Portainer agents, solution could be on `ubuntu1`:  
+`$ sudo docker service update portainer_agent --force`
+
 
 ## 8 Docker Registry
 The most popular Docker hosting is [Docker hub](https://hub.docker.com/). You can host your pre-builded Docker images there for free, if the images are public. But I dont want to publish my images of my private projects. So there are few alternatives, like:
@@ -675,7 +729,7 @@ Move the password file to Docker volume:
 `mv registry.password /data/registry2/auth/registry.password`
 
 Create Docker stack recipe:  
-`vim /root/docker/registry2-stack.yml`
+`vim /root/docker-stacks/registry2-stack.yml`
 
 with the following content:
 ```yaml
@@ -715,7 +769,7 @@ networks:
 This Docker registry will be running on `registry.vps1.matho.sk`. Again ensure, this subdomain has valid DNS A record pointing to the VPS IP address, or wildcard DNS record is set.
 
 Deploy the Docker stack via:  
-`$ sudo docker stack deploy -c registry2-stack.yml registry2`
+`$ sudo docker stack deploy -c /root/docker-stacks/registry2-stack.yml registry2`
 
 Then, lets do some testing. Pull the Alpine project on ubuntu1:
 ```
@@ -913,9 +967,9 @@ services:
 #  command: -c ssl=on -c ssl_cert_file=/run/secrets/server-cert.pem -c ssl_key_file=/run/secrets/server-key.pem -c ssl_ca_file=/run/secrets/root-ca.pem
   volumes:
    - /data/zabbix/zbx_env/var/lib/postgresql/data:/var/lib/postgresql/data:rw
-   - /data/zabbix/env_vars/.ZBX_DB_CA_FILE:/run/secrets/root-ca.pem:ro
-   - /data/zabbix/env_vars/.ZBX_DB_CERT_FILE:/run/secrets/server-cert.pem:ro
-   - /data/zabbix/env_vars/.ZBX_DB_KEY_FILE:/run/secrets/server-key.pem:ro
+   #- /data/zabbix/env_vars/.ZBX_DB_CA_FILE:/run/secrets/root-ca.pem:ro
+   #- /data/zabbix/env_vars/.ZBX_DB_CERT_FILE:/run/secrets/server-cert.pem:ro
+   #- /data/zabbix/env_vars/.ZBX_DB_KEY_FILE:/run/secrets/server-key.pem:ro
   deploy:
    mode: replicated
    replicas: 1
@@ -935,6 +989,8 @@ networks:
   zabbix_network:
     attachable: true
     internal: true
+    driver_opts:
+      com.docker.network.driver.mtu: 1450
     ipam:
       driver: default
       config:
@@ -977,10 +1033,34 @@ and with specification `hostname: zabbix-agent`. Thanks to this, I can use DNS s
 
 The Zabbix agent runs under a user named `zabbix`. By default `zabbix` is not allowed to execute Docker commands. But that is necessary to check the health of single Docker containers. To be able monitor services, I set the `user: 0:0` setting. This gives the container the `root` permissions of the host operating system.
 
-Create Docker volumes via:  
-`sudo mkdir -p /data/zabbix`
+Create Docker volumes on `ubuntu1` via:  
+```
+sudo mkdir -p /data/zabbix/zbx_env/var/lib/postgresql/data
+sudo mkdir -p /data/zabbix/zbx_env/usr/lib/zabbix/alertscripts
+sudo mkdir -p /data/zabbix/zbx_env/usr/lib/zabbix/externalscripts
+sudo mkdir -p /data/zabbix/zbx_env/var/lib/zabbix/dbscripts
+sudo mkdir -p /data/zabbix/zbx_env/var/lib/zabbix/dbscripts
+sudo mkdir -p /data/zabbix/zbx_env/var/lib/zabbix/export
+sudo mkdir -p /data/zabbix/zbx_env/var/lib/zabbix/modules
+sudo mkdir -p /data/zabbix/zbx_env/var/lib/zabbix/enc
+sudo mkdir -p /data/zabbix/zbx_env/var/lib/zabbix/ssh_keys
+sudo mkdir -p /data/zabbix/zbx_env/var/lib/zabbix/mibs
+sudo mkdir -p /data/zabbix/zbx_env/etc/ssl/nginx
+sudo mkdir -p /data/zabbix/zbx_env/usr/share/zabbix/modules/
 
-You can install the Docker stack via:  
+sudo mkdir -p /data/zabbix/zbx_env/etc/zabbix/zabbix_agentd.d
+sudo mkdir -p /data/zabbix/zbx_env/var/lib/zabbix/buffer
+```
+
+On `ubuntu2`:
+``` 
+sudo mkdir -p /data/zabbix/zbx_env/etc/zabbix/zabbix_agentd.d
+sudo mkdir -p /data/zabbix/zbx_env/var/lib/zabbix/enc
+sudo mkdir -p /data/zabbix/zbx_env/var/lib/zabbix/buffer
+sudo mkdir -p /data/zabbix/zbx_env/var/lib/zabbix/ssh_keys
+```
+
+You can install the Docker stack via (due to `env_vars` you need to be in zabbix folder and start the deploy from this folder!)  
 `$ sudo docker stack deploy -c docker-compose_v3_ubuntu_pgsql_latest.yaml zabbix`
 
 Zabbix will be running on `zabbix.vps1.matho.sk` domain. Feel free to modify the domain config according your needs. Also ensure, you specified the DNS A record for this domain.
@@ -988,25 +1068,26 @@ The default credentials for Zabbix backend are: `Admin:zabbix` I recommend to ch
 
 You can setup email trigger based on article [https://www.zabbix.com/documentation/current/en/manual/config/notifications/media/email](https://www.zabbix.com/documentation/current/en/manual/config/notifications/media/email)
 
+`NOTE:` Outgoing traffic to ports 25 and 465 are blocked by default on all Hetzner Cloud Servers. For further information take a look at our [Docs](https://docs.hetzner.com/cloud/servers/faq/#why-can-i-not-send-any-mails-from-my-server).
 
 ### 9.1 Zabbix agent configuration
 
 We need to allow firewall for Zabbix server <-->  Zabbix agent communication. Follow this steps:   
 On `ubuntu1` node:
 ``` 
-sudo ufw allow from 10.0.0.2 to any port 10050
+sudo ufw allow from 10.0.0.3 to any port 10050
 sudo ufw deny 10050
 
-sudo ufw allow from 10.0.0.2 to any port 10051
+sudo ufw allow from 10.0.0.3 to any port 10051
 sudo ufw deny 10051
 ```
 
 On `ubuntu2` node:
 ```
-sudo ufw allow from 10.0.0.1 to any port 10050
+sudo ufw allow from 10.0.0.2 to any port 10050
 sudo ufw deny 10050
 
-sudo ufw allow from 10.0.0.1 to any port 10051
+sudo ufw allow from 10.0.0.2 to any port 10051
 sudo ufw deny 10051
 ```
 
@@ -1016,10 +1097,10 @@ Go to `Data collection > Hosts > Create host` and fill in settings. You will hav
 - `Host Name` - enter a Hostname to identify the Linux server - `ubuntu2`
 - `Visible Hostname` - repeat the hostname.
 - `Templates` - select Templates / Operating systems > `Linux by Zabbix agent`
-- `host group` - enter a name to identify a group of similar devices - `linux servers`
+- `host group` - enter a name to identify a group of similar devices - `Linux servers`
 - `Agent Interface` - instead of IP, specify DNS name `zabbix-agent` and switch `Connect to` to DNS instead of IP value.
 
-Submit the form. You will need to modify the Agent DNS name also for the default `Zabbix server` configuration. Open the modal and modify IP configuration the DNS configuration with the same values - set `zabbix-agent` as DNS name and Connect to to DNS setting. After you submit the form, you should see green `ZBX` label under the Availability column. It means, your Zabbix server with Zabbix agent connection works.
+Submit the form. You will need to modify the Agent DNS name also for the default `Zabbix server` configuration. Open the modal and modify IP configuration the DNS configuration with the same values - set `zabbix-agent` as DNS name and Connect to to DNS setting. After you submit the form, you should see green `ZBX` label under the Availability column. It means, your Zabbix server with Zabbix agent connection works. If you not see the green ZBX label, give it a 5 minutes.
 
 Try to reboot the second node. Zabbix should let you know about the problem on the dashboard. Do some advanced configuration of Zabbix - like set the email notification service.
 
@@ -1105,7 +1186,7 @@ Crete Docker volume:
 Deploy the stack via:  
 `$ sudo docker stack deploy minio -c /root/docker-stacks/minio/minio-stack.yml`
 
-If you do not see the Minio running on the domain `minio.vps1.matho.sk`, do restart Traefik container and refresh the domain.
+If you do not see the Minio running on the domain `minio.vps1.matho.sk`, wait for few minutes or do restart Traefik container and refresh the domain.
 
 Log into the console running on `minio-console.vps1.matho.sk` and create first bucket. Then you can upload/download some files to test, that Minio works.
 
@@ -1119,7 +1200,7 @@ You can use the image from official url [https://ghcr.io/zalando/spilo-15:3.0-p1
 Create folder for Docker builds:
 ```
 $ mkdir ~/docker-builds
-cd ~/docker-builds
+$ cd ~/docker-builds
 ```
 
 At the time of writing this tutorial, the latest version on Github is `3.0.-p1`. Download and unzip the version:
@@ -1131,7 +1212,7 @@ $ unzip 3.0-p1.zip
 
 We will follow official guide from [https://github.com/zalando/spilo/tree/3.0-p1](https://github.com/zalando/spilo/tree/3.0-p1)
 ```
-$ cd postgres-appliance
+$ cd spilo-3.0-p1/postgres-appliance
 ```
 
 The PostgreSQL version 15 is specified in the Dockerfile, so I prefer to use the v15, although at the time of writing this article is v16 available.
@@ -1169,6 +1250,7 @@ services:
     #  - "8008:8008"
     environment:
       - PATRONI_POSTGRESQL_LISTEN=spilo_1:5432
+      - SPILO_PROVIDER=local
       - SCOPE=sftsscope
     volumes:      
       - "/data/spilo/spilo/pgdata:/home/postgres/pgdata"
@@ -1192,6 +1274,7 @@ services:
     #  - "8009:8008"
     environment:
       - PATRONI_POSTGRESQL_LISTEN=spilo_2:5432
+      - SPILO_PROVIDER=local
       - SCOPE=sftsscope
     volumes:
       - "/data/spilo/spilo/pgdata:/home/postgres/pgdata"
@@ -1217,13 +1300,22 @@ sudo mkdir -p /data/spilo/spilo/pgdata
 ```
 For the first run, comment the Docker volumes path in the Docker stack recipe, to start containers without the volumes configuration.
 
+Do pull image `$ sudo docker pull registry.vps1.matho.sk/spilo:3.0-p1`
+
 Deploy the Docker stack via:  
 `$ sudo docker stack deploy -c spilo-stack.yml spilo`
 
 When container is started, log in to the Spilo container via Portainer under `root` user. Copy the `postgres.yml` file from the `/home/postgres` folder.
 Insert the `postgres.yml` file under `/data/spilo/spilo/postgres.yml` and modify the configuration (user passwords) according to your need. Then uncomment Docker volumes in the Docker stack and repeat process also on second node. At the end, redeploy the Docker stack.
 
-Then check, if the Spilo is runing. Open in broser `http://vps1.matho.sk:8008` Note - it is plain http protocol, not secured. If you see `state: running` in the JSON, it should be working.
+If `etcd` key is not specififed in the config, add it somewhere around line 41: (without line numbers)
+
+`sudo vim /data/spilo/spilo/postgres.yml` (on both nodes)
+```
+41: etcd:
+42:   host: 127.0.0.1:2379
+```
+Do restart nodes in Portainer. Then check, if the Spilo is runing. Open in broser `http://vps1.matho.sk:8008` Note - it is plain http protocol, not secured. If you see `state: running` in the JSON, it should be working.
 
 Because we do not need the open ports 5432/8008, do redeploy of the Docker stack with commented port section. Then you should NOT see available port on `http://vps1.matho.sk:8008`
 
@@ -1625,9 +1717,9 @@ services:
       labels:
         - traefik.http.middlewares.mathosk-redirect-web-secure.redirectscheme.scheme=https
         - traefik.http.routers.mathosk.middlewares=mathosk-redirect-web-secure
-        - traefik.http.routers.mathosk.rule=Host(`contabo.matho.sk`)
+        - traefik.http.routers.mathosk.rule=Host(`hetzner.matho.sk`)
         - traefik.http.routers.mathosk.entrypoints=web
-        - traefik.http.routers.mathosk-secure.rule=Host(`contabo.matho.sk`)
+        - traefik.http.routers.mathosk-secure.rule=Host(`hetzner.matho.sk`)
         - traefik.http.routers.mathosk-secure.tls.certresolver=le
         - traefik.http.routers.mathosk-secure.entrypoints=web-secure
         - traefik.http.services.mathosk-secure.loadbalancer.server.port=80
@@ -1642,7 +1734,7 @@ networks:
     external: true
 ```
 
-Modify DNS A -> point to Contabo VPS IP.
+Modify DNS A -> point to Hetzner VPS IP.
 
 Create ENV file:  
 `$ sudo vim /root/docker-stacks/rails_projects/mathosk.env`
@@ -1694,7 +1786,7 @@ pg_dump --no-owner --no-privileges --dbname=postgresql://postgres:PASSWORD@10.0.
 You can deploy the new docker stack via:  
 `$ sudo docker stack deploy -c rails_projects-stack.yml rails_projects`
 
-One more step there - we need to synch uploaded images for the website. We will synch it via rsync from the old cluster to this new cluster.
+One more step there - we need to synch uploaded images for the website. We will synch it via rsync from the old cluster to this new cluster. Run the command from old cluster.
 ```
 $ sudo rsync -lptrucv -e "ssh -p 7777" --progress /storage-pool/data/mathosk/ root@vps2.matho.sk:/storage-pool/data/mathosk
 ```
@@ -1744,7 +1836,7 @@ So, I have implemented backuping on daily base. The script will backup the datab
 
 Because my Postgres cluster size is small - the backups has ~ 4MB, so I decided to use `pg_dump` to take snapshots of the database. I'm doing the backup on both nodes, and files are then stored to Gluster, which could be geo-replicated to another server.
 
-Check, if pgdump works
+Check, if pgdump works on ubuntu1:
 ```
 POSTGRES_BACKUP_DOCKER_CONTAINER_NAME=$(docker container ls -a | grep 'spilo_1' | grep '5432/tcp' | awk '{ print $1 }' | head -n 1)
 docker exec -e PGPASSWORD=YOUR-PASSWORD $POSTGRES_BACKUP_DOCKER_CONTAINER_NAME pg_dumpall -h spilo_1 -U postgres > 2023_11_17_backup.sql
@@ -2052,7 +2144,7 @@ If the problem is on `gluster1` node, use:
 If the problem is on `gluster2` node, use:  
 `$ sudo mount -t glusterfs gluster2.example.com:/volume1 /storage-pool`
 
-If you have issues with Portainer, solution could be:  
+If you have issues with Portainer, solution could be on ubuntu1:  
 `$ sudo docker service update portainer_agent --force`
 
 ## 16 Summary
