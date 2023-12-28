@@ -1241,6 +1241,31 @@ Create stack file:
 version: '3'
 
 services:
+  etcd:
+    image: docker.io/bitnami/etcd:3.4.15
+    hostname: etcd
+    environment:
+      - ALLOW_NONE_AUTHENTICATION=yes
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380     
+      - ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd:2380        
+      - ETCD_INITIAL_CLUSTER="etcd=http://etcd:2380"
+      - ETCD_INITIAL_CLUSTER_STATE=existing
+      - ETCD_INITIAL_CLUSTER_TOKEN=pgEtcdCluster
+      - ETCD_NAME=etcd
+      - ETCD_ENABLE_V2=true
+    volumes:
+      - "/etcd_data:/bitnami/etcd"
+    networks:      
+      traefik_db-nw:
+        aliases:
+          - etcd
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
   spilo_1:
     image: registry.vps1.matho.sk/spilo:3.0-p1
     user: 0:0
@@ -1251,7 +1276,8 @@ services:
     environment:
       - PATRONI_POSTGRESQL_LISTEN=spilo_1:5432
       - SPILO_PROVIDER=local
-      - SCOPE=sftsscope
+      - SCOPE=sftsscope      
+      - ETCD3_HOSTS="'etcd:2379'"
     volumes:      
       - "/data/spilo/spilo/pgdata:/home/postgres/pgdata"
       - "/data/spilo/spilo/postgres.yml:/home/postgres/postgres.yml"
@@ -1276,6 +1302,7 @@ services:
       - PATRONI_POSTGRESQL_LISTEN=spilo_2:5432
       - SPILO_PROVIDER=local
       - SCOPE=sftsscope
+      - ETCD3_HOSTS="'etcd:2379'"
     volumes:
       - "/data/spilo/spilo/pgdata:/home/postgres/pgdata"
       - "/data/spilo/spilo/postgres.yml:/home/postgres/postgres.yml"
@@ -1313,13 +1340,25 @@ If `etcd` key is not specififed in the config, add it somewhere around line 41: 
 `sudo vim /data/spilo/spilo/postgres.yml` (on both nodes)
 ```
 41: etcd:
-42:   host: 127.0.0.1:2379
+42:   host: etcd:2379
 ```
 Do restart nodes in Portainer. Then check, if the Spilo is runing. Open in broser `http://vps1.matho.sk:8008` Note - it is plain http protocol, not secured. If you see `state: running` in the JSON, it should be working.
 
 Because we do not need the open ports 5432/8008, do redeploy of the Docker stack with commented port section. Then you should NOT see available port on `http://vps1.matho.sk:8008`
 
 `Note:` When you will be reimporting old Postgres databases, it could be good to open 5432 port temporary. But better solution is to open ssh tunnel to the 5432 port.
+
+#### Etcd
+Etcd is a distributed key-value store designed to securely store data across a cluster. To make HA with Spilo, you'll need to start all participating Spilos with identical Etcd addresses and cluster names. It means, that Etcd will store the information about which Spilo is the master and which a replica. Thanks to Haproxy, the Rails applications will read from the database, which is currently the master one. 
+
+On master node, create folder for docker volume: `$ sudo mkdir /etcd_data` before you deploy the Spilo Docker stack file. Then `sudo chmod 777 /etcd_data`. 
+
+Then we need to set hostnames in `sudo vim /data/spilo/spilo/postgres.yml` instead of Spilo IP. 
+Do change `connect_address` on master node to `connect_address: spilo_1:5432` and  `connect_address: spilo_1:8008` under restapi key. Repeat on worker node with `spilo_2` hostname. Restart all docker containers: etcd, spilo1 and spilo2.
+
+We have deployed only one Etcd, so it is single point of failure now. But you can deploy more Etcd, if you want.
+
+If the Etcd is working, you can test it by scale down one of the Spilo container to 0. Then, Haproxy should be reading from the current master Spilo. E.g. if you scale down the Spilo1 to 0, the Haproxy should be reading from Spilo2. If you do any changes to database while Spilo1 is down, Spilo1 should pull this changes once it is scale up again. 
 
 ### 11.3 Firewall rules for Docker Swarm exposed ports
 
