@@ -2,12 +2,16 @@
 Read time: 40 minutes
 
 ## Introduction and VPS provider selection
-This is third edition of my tutorial about setuping system infrastructure via Docker. This time we will install infrastructure on amd64 arch VPS server, in VPS provider called  [Hetzner](https://www.hetzner.com/cloud). 
+This is third edition of my tutorial about setuping system infrastructure via Docker. This time we will install infrastructure on amd64 arch VPS server, in VPS provider called  [Hetzner](https://hetzner.cloud/?ref=gUj9wwGF2arQ)  
 
 I have selected product `CPX21` with 3vCPU cores, 4GB ram, 80GB disk space and 20TB traffic for 9.06 EUR/month.
 Because I need more disk space, I have ordered also 70GB volume. Volumes are external storage for the VPS, mounted to the system. 
 
-Because I want to setup HA, I have ordered another one VPS, with the same specification. You do not need to pay extra fees, if you want to communicate over private network. Let's start!
+Because I want to setup HA, I have ordered another one VPS, with the same specification. You do not need to pay extra fees, if you want to communicate over private network. 
+
+**NOTE: If you sign up using this referral link [https://hetzner.cloud/?ref=gUj9wwGF2arQ](https://hetzner.cloud/?ref=gUj9wwGF2arQ) , you will receive 20 € in cloud credits.**
+
+Let's start!
 
 ## 1 Initial server preparation
 The process of buying VPS from Hetzner is fully automate. You can pay via card and save the card for next payments. 
